@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import fs from "fs";
-import path from "path";
+import cloudinary from "@/lib/cloudinary";
 
-// POST - Add School
+// POST - Add School 
 export async function POST(req) {
   try {
     const formData = await req.formData();
@@ -14,42 +13,44 @@ export async function POST(req) {
     const state = formData.get("state");
     const contact = formData.get("contact");
     const email_id = formData.get("email_id");
-    const imageFile = formData.get("image");
+    const image = formData.get("image");
 
-    let imageName = null;
+    let imageUrl = null;
+    let publicId = null;
 
-    if (imageFile && imageFile.size > 0) {
-      // Convert file to Buffer
-      const buffer = Buffer.from(await imageFile.arrayBuffer());
-      const ext = path.extname(imageFile.name);
-      imageName = `${Date.now()}${ext}`;
+    if (image) {
+      const bytes = await image.arrayBuffer();
+      const buffer = Buffer.from(bytes);
 
-      // Ensure upload directory exists
-      const uploadDir = path.join(process.cwd(), "public/schoolImages");
-      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      // Upload to Cloudinary (wrapped in Promise)
+      const result = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { folder: "schoolImages" },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        uploadStream.end(buffer);
+      });
 
-      // Save file
-      const filePath = path.join(uploadDir, imageName);
-      fs.writeFileSync(filePath, buffer);
+      imageUrl = result.secure_url;
+      publicId = result.public_id;
     }
 
-    // Insert into database
     await db.execute(
-      "INSERT INTO schools (name, address, city, state, contact, email_id, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [name, address, city, state, contact, email_id, imageName]
-    );
+  "INSERT INTO schools (name, address, city, state, contact, email_id, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  [name, address, city, state, contact, email_id, imageUrl]
+);
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("POST /api/schools error:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
-// GET - Fetch Schools
+//  GET - Fetch Schools 
 export async function GET() {
   try {
     const [rows] = await db.execute("SELECT * FROM schools");
@@ -63,47 +64,18 @@ export async function GET() {
   }
 }
 
+//  DELETE - Delete School 
 export async function DELETE(req) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: "ID is required" },
-        { status: 400 }
-      );
-    }
-
-    // 1. Find school record to get image name
-    const [rows] = await db.execute("SELECT image FROM schools WHERE id = ?", [id]);
-    if (rows.length === 0) {
-      return NextResponse.json(
-        { success: false, error: "School not found" },
-        { status: 404 }
-      );
-    }
-
-    const imageName = rows[0].image;
-
-    // 2. Delete the school record
     await db.execute("DELETE FROM schools WHERE id = ?", [id]);
 
-    // 3. Delete image file if it exists
-    if (imageName) {
-      const imagePath = path.join(process.cwd(), "public", "schoolImages", imageName);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-        console.log(`🗑️ Deleted image: ${imagePath}`);
-      }
-    }
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, message: "School deleted successfully" });
   } catch (error) {
     console.error("DELETE /api/schools error:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
+

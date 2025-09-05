@@ -151,7 +151,7 @@ export default function ShowSchools() {
                   {school.image && (
                     <div className="relative h-56 overflow-hidden bg-slate-800/50">
                       <img
-                        src={`/schoolImages/${school.image}`}
+                        src={school.image}
                         alt={school.name}
                         className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
                       />
